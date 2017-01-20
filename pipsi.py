@@ -84,29 +84,6 @@ def statusoutput(argv, **kw):
     return p.returncode, output
 
 
-def publish_script(src, dst):
-    if IS_WIN:
-        # always copy new exe on windows
-        shutil.copy(src, dst)
-        click.echo('  Copied Executable ' + dst)
-        return True
-    else:
-        old_target = real_readlink(dst)
-        if old_target == src:
-            return True
-        try:
-            os.remove(dst)
-        except OSError:
-            pass
-        try:
-            os.symlink(src, dst)
-        except OSError:
-            pass
-        else:
-            click.echo('  Linked script ' + dst)
-            return True
-
-
 def find_scripts(virtualenv, package):
     prefix = normalize(join(virtualenv, BIN_DIR, ''))
 
@@ -199,15 +176,72 @@ class Repo(object):
         except OSError:
             pass
 
+    def run(self, package, script):
+        package_home = self.get_package_path(package)
+        posix_shell = os.environ.get('SHELL')
+        pipsi_home = self.get_package_path('pipsi')
+
+        if os.name == 'posix' and posix_shell == '/bin/bash':
+            shell_wrapper = os.path.join(package_home, 'bin', 'activate-wrapper')
+            args = [
+                posix_shell,
+                os.path.join(pipsi_home, 'bin', 'activate-wrapper'),
+                os.path.join(package_home, 'bin', 'activate'),
+                package,
+            ]
+            args.extend(sys.argv[1:])
+            os.execv(args[0], args)
+        else:
+            raise RuntimeError('not implemented for {} {}'.format(os.name, os.environ.get('SHELL')))
+
     def link_scripts(self, scripts):
         rv = []
         for script in scripts:
             script_dst = os.path.join(
                 self.bin_dir, os.path.basename(script))
-            if publish_script(script, script_dst):
+            if self.publish_script(script, script_dst):
                 rv.append((script, script_dst))
 
         return rv
+
+    def publish_script(self, src, dst):
+        if IS_WIN:
+            # always copy new exe on windows
+            shutil.copy(src, dst)
+            click.echo('  Copied Executable ' + dst)
+            return True
+        else:
+            try:
+                os.remove(dst)
+            except OSError:
+                pass
+
+            # TODO: write this to `home` and symlink in for removal algorithm?
+            with open(dst, 'w') as f:
+                f.write('\n'.join([
+                    '#!{}'.format(sys.executable),
+                    '',
+                    '# -*- coding: utf-8 -*-',
+                    'import os.path',
+                    'import sys',
+                    '',
+                    'from pipsi import Repo',
+                    '',
+                    '# TODO: Need to derive `home` and `bin_dir` the same way as `cli`.',
+                    'repo = Repo(',
+                    "    home='{}',".format(self.home),
+                    "    bin_dir='{}',".format(self.bin_dir),
+                    ')',
+                    '',
+                    'package_name = os.path.basename(sys.argv[0])',
+                    "repo.run(package_name, '{}')".format(os.path.basename(src)),
+                ]))
+
+            # TODO: catch errors
+            # TODO: make executable
+
+            click.echo('  Linked script ' + dst)
+            return True
 
     def install(self, package, python=None, editable=False, system_site_packages=False):
         package, install_args = self.resolve_package(package, python)

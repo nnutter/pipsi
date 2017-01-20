@@ -1,0 +1,17 @@
+#!/home/nnutter/.local/venvs/pipsi/bin/python2.7
+
+# -*- coding: utf-8 -*-
+import os.path
+import sys
+
+from pipsi import Repo
+
+
+# TODO: Need to derive `home` and `bin_dir` the same way as `cli`.
+repo = Repo(
+    home=os.path.expanduser('~/.local/venvs'),
+    bin_dir=os.path.expanduser('~/.local/bin'),
+)
+
+package_name = os.path.basename(sys.argv[0])
+repo.run(package_name, 'pipsi')
